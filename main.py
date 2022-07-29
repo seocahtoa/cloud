@@ -5,6 +5,7 @@ from flask_sqlalchemy import SQLAlchemy
 import json
 import random
 import time
+from datetime import datetime
 
 flask_app = Flask(__name__)
 #flask_app = Flask(__name__, static_folder='./build', static_url_path='/')
@@ -38,12 +39,12 @@ class Transaction:
 
 def CustomerAccountDetailsToJSON(customer, account):
     return json.dumps({
-        'id': account.id,
-        'account_number': customer.account_number,
-        'balance': account.balance,
-        'status': account.status,
-        'first_name': customer.first_name,
-        'last_name': customer.last_name
+        'id': account['id'],
+        'account_number': account['account_number'],
+        'balance': account['balance'],
+        'account_status': account['account_status'],
+        'first_name': customer['first_name'],
+        'last_name': customer['last_name']
     })
 
 
@@ -56,17 +57,13 @@ def retrieve_details(accountNumber):
     uri = "mongodb+srv://cluster0.nbb3w.mongodb.net/?authSource=%24external&authMechanism=MONGODB-X509&retryWrites=true&w=majority"
     client = MongoClient(uri,
                      tls=True,
-                     tlsCertificateKeyFile='/Users/sminsu/Downloads/X509-cert-2313919381921716032.pem')
-    customerDB = client.bank.customer
-    accountDB = client.bank.account
+                     tlsCertificateKeyFile='X509-cert-2313919381921716032.pem')
+    customerDB = client['bank']['customer']
+    accountDB = client['bank']['account']
     
     #get account and customer as JSON from databases
     account = accountDB.find_one({'account_number': accountNumber})
     customer = customerDB.find_one({'id': account['id']})
-    
-    #convert JSON strings to dicts
-    account = json.load(account)
-    customer = json.load(customer)
     
     client.close()
 
@@ -77,14 +74,11 @@ def open_account(firstName, lastName):
     uri = "mongodb+srv://cluster0.nbb3w.mongodb.net/?authSource=%24external&authMechanism=MONGODB-X509&retryWrites=true&w=majority"
     client = MongoClient(uri,
                      tls=True,
-                     tlsCertificateKeyFile='/Users/sminsu/Downloads/X509-cert-2313919381921716032.pem')
+                     tlsCertificateKeyFile='X509-cert-2313919381921716032.pem')
     db = client['bank']
     databaseAccount = db['account']
     databaseCustomer = db['customer']
-    idIncrement = 0
-    # collectionAccount = databaseAccount[idIncrement]
-    # collectionCustomer = databaseCustomer[idIncrement]
-    newAccountNumber = int(time.gmtime())
+    newAccountNumber = idIncrement = int(time.time())
     
     attributeAccount = {
         'id': idIncrement,
@@ -100,7 +94,7 @@ def open_account(firstName, lastName):
         'last_name': lastName,
         'associated_account': newAccountNumber
     }
-
+    
     databaseCustomer.insert_one(attributeCustomer)
     client.close()
     print(newAccountNumber)
@@ -108,26 +102,36 @@ def open_account(firstName, lastName):
 
 @flask_app.route('/close_account/<accountNumber>')
 def close_account(accountNumber):
+
+
     uri = "mongodb+srv://cluster0.nbb3w.mongodb.net/?authSource=%24external&authMechanism=MONGODB-X509&retryWrites=true&w=majority"
     client = MongoClient(uri,
                      tls=True,
-                     tlsCertificateKeyFile='/Users/sminsu/Downloads/X509-cert-2313919381921716032.pem')
-    accountDB = client.bank.account
-    accountDB.update_one({'account_number': accountNumber}, { '$set': {'account_status': 'closed'}})
+                     tlsCertificateKeyFile='X509-cert-2313919381921716032.pem')
+    accountDB = client['bank']['account']
+
+    account_filter = {'account_number': int(accountNumber)}
+    updated_val = { "$set": {'account_status': 'closed'}}
+
+    accountDB.update_one(account_filter, updated_val)
+
     client.close()
-    return
+    return "Deleted account"
 
 @flask_app.route('/apply_transaction/<accountNumber>/<amount>/<transactionType>')
 def apply_transaction(accountNumber, amount, transactionType):
     uri = "mongodb+srv://cluster0.nbb3w.mongodb.net/?authSource=%24external&authMechanism=MONGODB-X509&retryWrites=true&w=majority"
     client = MongoClient(uri,
                      tls=True,
-                     tlsCertificateKeyFile='/Users/sminsu/Downloads/X509-cert-2313919381921716032.pem')
-    accountDB = client.bank.account
-    transactionDB = client.bank.transaction
+                     tlsCertificateKeyFile='X509-cert-2313919381921716032.pem')
+    accountDB = client['bank']['account']
+    transactionDB = client['bank']['transaction']
 
-    account = accountDB.get_one({'account_number': accountNumber})
-    balance = json.load(account).balance
+    accountNumber = int(accountNumber)
+    amount = float(amount)
+
+    account = accountDB.find_one({'account_number': accountNumber})
+    balance = account['balance']
     
     if transactionType == 'credit':
         balance += amount
@@ -137,18 +141,16 @@ def apply_transaction(accountNumber, amount, transactionType):
     accountDB.update_one({'account_number': accountNumber}, { '$set': {'balance': balance}})
 
     transaction = {
-        'id': 0,
+        'id': int(time.time()),
         'amount': amount,
         'transaction_type': transactionType,
         'account_number': accountNumber
     }
 
     transactionDB.insert_one(transaction)
-    # account = Account('1','12345',1000,'enabled')
-    # account.balance = account.balance - amount
+
     client.close()
-    #Save into mongoDB somehow
-    return account
+    return "transaction complete"
 
 
 if __name__ == '__main__':
